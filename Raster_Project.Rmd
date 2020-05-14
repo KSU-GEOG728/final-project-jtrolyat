@@ -1,0 +1,394 @@
+---
+title: "DEM Turtorial"
+author: "Jordan Watson"
+date: "4/21/2020"
+output: html_document
+---
+
+## Mapping Lab {.tabset}
+
+
+Introduction: 
+
+The United States has a virtually complete dataset of 30 to 10 meter resolution digital elevation models for the entire continental United States. These DEMS can be used for a variety of research purposes and endeavors and can provide invaluable support in any scientific endeavor. The United States DEMs started in 2012 and have continued to be updated and improved. They were created from a variety of sources such as LIDAR, mass point, photogrammetrically created contours, and from orthorectified radar.  DEMs are used to analyze terrain, measure watersheds, examine and estimates soil occurrences. They also can provide a practical use within constructions, precision agriculture, and environmental consulting. 
+
+
+DEMs can be easily sourced from the [Geospatial Data Gateway](https://datagateway.nrcs.usda.gov/)   and are downloaded in the .tif format. However, if the area you are analyzing covers a large spatial extent you may need to merge several DEMs together since they are typically a default size. The techniques to merger DEMs is addressed later in the tutorial. 
+
+
+***
+
+### R Setup
+
+Below are the packages used within the tutorial it may be necessary for you to install them if they have not been previously installed.
+
+```{r setup}
+knitr::opts_chunk$set(echo = TRUE)
+
+library(raster)
+library(sf)
+library(tidyverse)
+library(spatialEco)
+
+```
+
+***
+
+
+### DEM Mangagement 
+
+To start, I load in the Riley County DEMs using the raster function from the ‘raster’ package in r.  Next I check to see that the raster has a coordinate systems and projection that is known.  The raster has been projected into *"+proj=utm +zone=14 +datum=NAD83 +units=m +no_defs +ellps=GRS80 +towgs84=0,0,0"* I then use the function **cellstats ** to calculate the mean and range of the cell values within the Riley County DEMs with any NA values. **cellstats ** can be used to calculate the sum, mean, maximum value, minimum value, standard deviation, skewness, and Root Mean Square values.  
+
+```{r Riley County Load}
+
+## This section is about loading in the DEM and aggregrating
+
+RileyCounty <- raster("RileyCounty.tif")
+
+
+projection(RileyCounty)
+
+
+
+cellStats(RileyCounty, stat = "range", na.rm=T)
+cellStats(RileyCounty, stat = "mean", na.rm=T)
+cellStats(RileyCounty, stat = "min", na.rm=T)
+cellStats(RileyCounty, stat = "max", na.rm=T)
+```
+
+The mean value is `r cellStats(RileyCounty, stat = "mean", na.rm=T)` , with the minimum equaling `r cellStats(RileyCounty, stat = "min", na.rm=T)`  and the maximum equaling `r cellStats(RileyCounty, stat = "max", na.rm=T)` .
+
+Next I check the resolution of the DEM I just loaded into R and plot it. In the south center region of the map there is an artificially cropped boundary. This is likely the result of the military base and operations in the area and this information is marked classified and has been redacted. Not much can be done in this case because the “missing” area is too large and it cannot be interpolated from the surrounding values. 
+ 
+```{r Riley County Resolution}
+##Checking the Resolution 
+res(RileyCounty)
+
+plot(RileyCounty ,main= "Riley County DEM")
+```
+
+Often the DEM is at a higher resolution than what may be necessary for what you are examining so it is useful to be able to aggregate or coarsen the resolution of the DEM. Using the **aggregate ** function I coarsen the DEM by a factor of 2 reducing the resolution from 30 meters to 60 meters.  I then plot the result and not much appears visually different, so I reduce the resolution further by a factor of 10 and plot the result. There is a slight visual difference between the 60-meter resolution raster and the 600 meter resolution raster.  A DEM coarsened this much is not particularly useful but I wanted to demonstrate the how the function is used.
+
+```{r Riley County Aggregating}
+## Aggregating by a factor of 2 and rechecking resolution
+RileyCountyA <- aggregate(RileyCounty, fact=2, fun=mean)
+res(RileyCountyA)
+
+plot(RileyCountyA, main= "After Aggregating by Factor of 2")
+
+
+RileyCountyC <- aggregate(RileyCounty, fact=10, fun=mean)
+res(RileyCountyC)
+
+plot(RileyCountyC, main= "After Aggregating Further by Factor of 10")
+
+
+```
+
+Once the necessary edits have been made it is possible to export the raster out of R to be used in other application using the **writeRaster ** function.  Using the previous more practical 60 meter resolution DEMs I write an output .tif with the updated resolution. 
+
+However, it is possible to the terrain analysis you would typically accomplish in other “GIS” software within R. I go into detail in the following tabs.
+
+
+```{r Riley County Export}
+
+writeRaster(RileyCountyA, filename=file.path( "RileyCountyedit.tif"), overwrite=TRUE)
+```
+
+
+***
+
+### Slope Calculation
+
+One of the main terrain derivatives of DEMs is slope. Slope can be used in a variety of methods to analyze the landscape such as flow directions, flow paths, and overall terrain roughness. Within R slope can be calculated using the **terrain ** function from the ‘raster’ package. When calculating slope there are multiple options for the amount of surrounding cells used in the calculation. It has been suggested that 8 neighbors is more effective on rougher slopes (Horn 1981) and that the 4 neighbors method works better on smooth surfaces  (Jones, 1997; Burrough and McDonnell, 1998).  Also, within slope calculation the unit of measurement is specified as either 'degrees', 'radians' or 'tangent'. Typically, within GIS programs like ArcMap degrees is the unit used within calculations. However, other units can be useful depending on the style/needs of the analyses. Below using the Riley County DEM I calculate slope using 4 neighbors and 8 neighbors with degrees set as the units. I then plot the two resulting rasters and they appear visually very similar. 
+
+```{r Slope}
+
+## Variation of Slope Calculations ##
+
+## Slope with neighbor value of 8 (for rougher surfaces)
+RileyCounty8 <- terrain(RileyCounty, opt="slope", unit="degrees", neighbors=8) 
+
+
+## Slope with neighbor value of 4 (for rougher surfaces)
+RileyCounty4 <- terrain(RileyCounty, opt="slope", unit="degrees", neighbors=4) 
+
+
+##Visuallly similar
+plot(RileyCounty8)
+plot(RileyCounty4)
+
+```
+
+
+I then run some cell stats on the pair of rasters and you can see their [mean] values differ. Given the “hilly” nature of this area of Kansas it is likely the 8 neighbors method is better in this area given the roughness of the area. Which method you should use will depend on what the end use of the slope maps is, and the nature and terrain of the environment being studied
+
+``` {r cell stats}
+## calculate Cell Stats for each 
+
+cellStats(RileyCounty8, stat = "range", na.rm=T)
+cellStats(RileyCounty8, stat = "mean", na.rm=T)
+
+
+## Demonstrate the difference in values (Mean)
+cellStats(RileyCounty4, stat = "range", na.rm=T)
+cellStats(RileyCounty4, stat = "mean", na.rm=T)
+
+
+```
+
+***
+
+### Terrain
+
+Slope is not the only terrain derivative that can be calculated from a digital elevation model. Other useful terrain attributes such as aspect, terrain roughness, and flow direction can also be calculated.  Each one of these derivatives may or may not be useful depending on what is being studied.
+
+
+A potentially extremely useful terrain attribute that can be used is aspect. The terrain derivative aspect shows the compass direction the slope is facing. Because of consistent patterns in precipitation, wind, and sunrise and sunset slope aspect can be a useful attribute to know in an analysis. For example, many times in the norther hemisphere soils on south facing slopes have more solar radiation, less biomass, and more evapotranspiration. As a result, soils with a south facing aspect have thinner top layers than soils with a north facing aspect.
+
+
+ Below I calculate aspect for the Riley county raster using the **terrain ** function and setting the unit as degrees. I then plot resulting map as well as a calculated mean. The numbers in degrees show the direction with 0 reflecting North, 90 reflecting east, 180 reflecting South, and 270 reflecting West. 
+
+
+```{r Riley County Apsect}
+
+## Calculating Aspect
+
+RileyCountyaspect <- terrain(RileyCountyA, opt="aspect", unit="degrees", neighbors=8)
+
+
+plot(RileyCountyaspect)
+
+cellStats(RileyCountyaspect, stat = "mean", na.rm=T) ## calculating the mean aspect value present 
+
+
+```
+
+Depending on the area being studied knowing the roughness of the landscape can be useful. Using a DEM is it possible to create a Terrain Roughness Index. This index shows the difference of the maximum and minimum value of a cell relative to its 8 surrounding cells. 
+
+Below I calculate the terrain roughness of the Riley county Raster using the **terrain ** function. I Then calculate some basic statistics of the results. 
+
+
+``` {r Riley County Rough}
+
+
+RileyCountyrough <- terrain(RileyCountyA, opt="roughness")
+
+plot(RileyCountyrough)
+
+cellStats(RileyCountyrough, stat = "range", na.rm=T)
+cellStats(RileyCountyrough, stat = "mean", na.rm=T)
+
+```
+
+Another commonly calculated DEM derivative is flow direction. Flow direction calculates the most likely path water will take by calculating directions with the greatest drop in elevation. When calculating flow direction if both the elevation drop is the same between cells random cell is picked and it does not allow for interconnected flow networks. This is a limitation that is not present within ArcMap and is likely to be addressed and improved in the future. Below I calculate flow direction for the Riley County DEM and plot the result. 
+
+
+``` {r Riley County FlowDir}
+
+
+## Calculate and plot the flow direction of the DEM
+
+RileyCountyflow <- terrain(RileyCountyA, opt="flowdir ")
+
+plot(RileyCountyflow, main= "Riley County Flow Direction")
+
+
+
+```
+
+
+Another extremely useful derivative of a DEM is surface curvature. Curvature reflects the convexity or concavity of a surface, whether the surface bends outward or inward. Curvature can be calculated down slope profile, or across slope planform, or a combination of both. Combined/Total curvature is the sigma of both planar and planform. In all forms of curvature negative values reflect concavity, positive values reflect convexity, values near 0 reflect flat or linear surfaces. Differently curved surfaces will have different properties. Concave surface will generally retain water and convex surfaces will generally shed water. 
+
+
+Curvature in r can be calculated using an elevation raster and the function **curvature** from the  ‘spatialEco’ package created by Jeffrey S. Evans. Below using the Riley County raster I calculate planform, profile, and total curvature. The only inputs for the **curvature ** function are the raster and then the type of curvature to be calculated. I then calculate the range of curvature values for each type. The values are relatively small however, this is likely just the result of the projection and the aggregation earlier in the analysis. You can see the values range from negative(concave) to positive (convex). 
+
+``` {r Riley County Curvature}
+
+
+##Using super coarse Raster calculate the three forms of curvature
+
+
+RileyCountyPLC <-curvature(RileyCountyA, type = "planform") ## Planar curvature
+cellStats(RileyCountyPLC, stat = "range", na.rm=T)
+plot(RileyCountyPLC, main="Riley County Planar Curvature")
+
+RileyCountyPOC <-curvature(RileyCountyA, type = "profile") ## Profile curvature
+cellStats(RileyCountyPOC, stat = "range", na.rm=T)
+plot(RileyCountyPOC ,main="Riley County Profile Curvature")
+
+RileyCountyCOM <-curvature(RileyCountyA, type = "total") ## Total curvature
+cellStats(RileyCountyCOM, stat = "range", na.rm=T)
+plot(RileyCountyCOM, main="Riley County Combined Curvature")
+
+
+
+```
+
+***
+
+### Rocky Mountain Hillshades
+
+
+Some terrain derivatives can be combined to create different visualizations of the DEM data. For this section lets look at a different area. This DEM is from the Rocky Mountains in Colorado in the area of Mount Elbert the tallest rocky mountain around 4.4 kilometers tall.  I chose this DEM because of the extreme elevation to better show the differences/use of the DEM derivatives.
+
+Below I load in the DEM using the **raster ** function and run some statistics on it. The range of values is larger and the mean is significantly higher than the values seen in the Riley County DEM. I then plot the DEM to make sure it is not corrupted or missing a significant amount of values. 
+
+
+```{r Rocky Mountains Load}
+
+
+CO <- raster("ColoradoMountains.tif")
+cellStats(CO, stat = "range", na.rm=T)
+cellStats(CO, stat = "mean", na.rm=T)
+
+plot(CO, main = "Rocky Mountain DEM")
+
+```
+
+
+
+The terrain derivatives slope and aspect can be combined to create a hillshade. A hillshade is a more appealing way to visualize and plot DEMs. They are also often used as base layers with other shapefiles or other partially transparent layers on top to create visually striking maps.  To create a hillshade you must first calculate its components slope and aspect. Below I first calculate the slope for the Rocky Mountains DEM using the 8 neighbors method because the area has a rough landscape. I then calculate the aspect of the DEM and plot both results to make sure they were completed correctly.
+
+Next using the **hillShade ** function from the ‘raster’ package I create a hillshade. This function has several inputs and parameters. The first two inputs are the slope and aspect rasters created followed by the elevation angle of the light source and the azimuth direction of the light source (to determine how the shadows are casted). Additionally, there is the option to normalize values meaning that values below zero are set to zero and the results overall are multiplied by zero. I create both a normalized and not normalized hillshade to visually compare the results. 
+
+```{r Rocky Mountains Hillshade}
+## Combing the aspect and slope rasters it is possible to create a hillshade. 
+
+#The default color schemes is not great. Lets change it to a grey Scale. 
+
+
+COslope <- terrain(CO, opt="slope", unit="radians", neighbors=8)
+plot(COslope, main="Mount Elbert Region Slope")
+
+COaspect <- terrain(CO, opt="aspect", unit="radians", neighbors=8)
+plot(COaspect, main="Mount Elbert Region Aspect")
+
+
+##Create a hillshade that is not normalized
+COhills <- hillShade(COslope,COaspect,angle=45, direction=0, normalize=FALSE)
+
+plot(COhills)
+
+
+##Create a hillshade that is normalized
+
+COhillsNORM <- hillShade(COslope,COaspect,angle=45, direction=0, normalize=TRUE)
+
+plot(COhillsNORM)
+
+```
+
+
+The default color scheme R provides for the hillshade is not the most visually appealing. Below I adjust the color scheme of the plots to a gray scale for both the normalized and unnormalized hillshade. 
+
+
+```{r Rocky Mountains HillshadeII}
+
+##Plot as greyscale
+
+plot(COhills, col = gray.colors(10, start = 0.3, end = 0.9, gamma = 2.2, alpha = NULL, rev = TRUE))
+
+plot(COhillsNORM, col = gray.colors(10, start = 0.3, end = 0.9, gamma = 2.2, alpha = NULL, rev = TRUE))
+
+
+```
+
+
+Another technique that is potentially useful on digital elevation models is reclassification. Reclassification is the changing of raster values or ranges of raster values to singular specific values. Below I reclassify the Rocky Mountain DEM to five quantile classes and plot the result. DEMs can also be reclassified manually using the **reclassify ** function within the ‘raster’ package. 
+
+
+
+```{r Rocky Mountains Reclass}
+
+## Reclassifying DEM
+
+##Calculating classes
+B <- quantile(CO, probs = (0:5)/5) ## Change to 5?
+
+COClass <- cut(CO, breaks = B)
+
+plot(COClass, main="Rocky Mountains DEM Reclassified")
+
+```
+
+***
+
+### Merging 
+
+
+
+Even though the DEMS are easily obtained many times due to file size restrictions a study area with a large extent may span several DEMs wide or tall. To show how to address this lets look at a different style of landscape.  Below I load in 2 DEMS from Coconino County Arizona  the location of the Grand Canyon. This section of the Grand Canyon spans over both DEMs and the connection is evident once they are plotted. To merge to DEMs the origin point or the X and Y 0,0 coordinate of the DEM raster most be the known and the same for each raster. 
+
+```{r Grand Canyon Load}
+
+
+GC1 <- raster("Grandcanyon1.tif")
+GC2 <- raster("Grandcanyon2.tif")
+
+plot(GC1)
+plot(GC2)
+
+## Two Seperate DEMs need to merge them together
+```
+
+Below using the **origin ** function from the ‘raster’ package I determine the origin points for both Grand Canyon raster. The rasters’ origins vary slightly however, this can be addressed within the merge tool. 
+
+```{r Grand Canyon Origin}
+
+#Origin is the the coordinates of the point of origin of a Raster* object
+
+
+origin(GC1)
+origin(GC2)
+```
+
+Below using the **merge ** from the ‘raster package I input the two rasters and adjust the tolerance to cover the difference in origins. This does mean some of the pixels along the border will be overwritten however, the majority of the information in the two rasters in unaffected. I then plot the merged raster with some basic statistics and you can see that they have been merged. 
+
+```{r Grand Canyon Merge}
+
+
+mergedraster <- raster::merge(GC1, GC2, tolerance = 10.38534) ## tolerance is the fudging of the origin zone 
+
+## Plotted Merged Raster
+plot(mergedraster, main= "Merged Grand Canyon DEMs")
+cellStats(mergedraster, stat = "range", na.rm=T)
+cellStats(mergedraster, stat = "mean", na.rm=T)
+```
+
+Once the rasters are merged its is possible to calculate the derivatives seen the previous tutorial steps. As an example I calculate the aspect and slope of the merged raster and create a hillshade. 
+
+```{r Grand Canyon Fun}
+
+##Calculate Aspect
+GCaspect <- terrain(mergedraster, opt="aspect", unit="radians", neighbors=8)
+
+##Calculate Slope
+GCslope <- terrain(mergedraster, opt="slope", unit="radians", neighbors=8)
+
+GChills <- hillShade(GCslope,GCaspect,angle=45, direction=0, normalize=FALSE)
+
+
+##Plotting HIllshade
+plot(GChills, col = gray.colors(10, start = 0.3, end = 0.9, gamma = 2.2, alpha = NULL, rev = TRUE), main="Grand Canyon Hill Shade")
+
+
+```
+
+Digital Elevation Models can provide invaluable support in any research endeavors and being able to manipulate this data is a great skill to have as a geographer. 
+
+***
+
+### References
+
+References 
+Burrough, P., and R.A. McDonnell, 1998. Principles of Geographical Information Systems. Oxford University Press.
+
+Fleming, M.D. and Hoffer, R.M., 1979. Machine processing of landsat MSS data and DMA topographic data for forest cover type mapping. LARS Technical Report 062879. Laboratory for Applications of Remote Sensing, Purdue University, West Lafayette, Indiana.
+
+Horn, B.K.P., 1981. Hill shading and the reflectance map. Proceedings of the IEEE 69:14-47
+
+Jones, K.H., 1998. A comparison of algorithms used to compute hill slope as a property of the DEM. Computers & Geosciences 24: 315-323
+
+
+***
